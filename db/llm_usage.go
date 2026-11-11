@@ -268,3 +268,41 @@ func ParseExpID(s string) int64 {
 	}
 	return n
 }
+
+// WorkerLatencyStat holds per-worker latency and error-rate aggregates over the
+// past 30 days from the llm_usage table.
+type WorkerLatencyStat struct {
+	Worker       string  `json:"worker"`
+	Calls        int     `json:"calls"`
+	AvgLatencyMs float64 `json:"avg_latency_ms"`
+	P95LatencyMs float64 `json:"p95_latency_ms"`
+	ErrorPct     float64 `json:"error_pct"`
+}
+
+// WorkerLatencyStats returns per-worker average latency, p95 latency, and error
+// rate for the past 30 days, ordered by call count descending.
+func (d *DB) WorkerLatencyStats() ([]WorkerLatencyStat, error) {
+	rows, err := d.Query(`
+SELECT COALESCE(worker,'') AS worker,
+       COUNT(*) AS calls,
+       COALESCE(AVG(latency_ms),0) AS avg_latency_ms,
+       COALESCE(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms),0) AS p95_latency_ms,
+       ROUND(100.0*SUM(CASE WHEN status='error' THEN 1 ELSE 0 END)/NULLIF(COUNT(*),0),2) AS error_pct
+FROM llm_usage
+WHERE ts >= now() - interval '30 days'
+GROUP BY worker
+ORDER BY calls DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []WorkerLatencyStat{}
+	for rows.Next() {
+		var s WorkerLatencyStat
+		if err := rows.Scan(&s.Worker, &s.Calls, &s.AvgLatencyMs, &s.P95LatencyMs, &s.ErrorPct); err != nil {
+			return nil, err
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}

@@ -1,0 +1,42 @@
+{
+  "id": "FEAT-005",
+  "type": "feat",
+  "description": "P2/P3 features — CI/CD integration (GitHub Actions + SARIF export) and agent performance benchmarks. These two are purely additive (new files + one new API endpoint + one new CLI directory) and have no dependencies on FEAT-001 through FEAT-004. Implement SARIF first (adds one endpoint to existing server), then GitHub Actions action files, then benchmarks directory.",
+  "status": "pending",
+  "steps": [
+    "SECTION A: SARIF Export + GitHub Actions",
+    "A1. report/sarif.go (new file): Implement SARIF(in Input) ([]byte, error) that generates a SARIF 2.1.0 JSON document from a report.Input. SARIF structure: {`$schema`: 'https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json', version: '2.1.0', runs: [{tool: {driver: {name: 'artex', version: BuildVersion, rules: [...]}}, results: [...]}]}. Each DBFinding maps to a SARIF result: ruleId=vulnclass, level (map: critical/high→error, medium→warning, low→note), message.text=summary, locations[0].physicalLocation.artifactLocation.uri=target URL extracted from evidence. Each unique vulnclass maps to a SARIF rule with id, name, shortDescription.",
+    "A2. server/task_report.go (extend from FEAT-004 C3, or new handler if FEAT-004 not done): Add SARIF format handling to the taskReport handler. When format=sarif, call report.SARIF(input), return Content-Type application/sarif+json and Content-Disposition attachment; filename=artex-scan-results.sarif.",
+    "A3. server/server.go: Register `mux.HandleFunc(\"GET /api/tasks/{id}/sarif\", s.taskSARIF)` as a convenience shortcut. Implement taskSARIF as a wrapper that calls the same logic as format=sarif in taskReport.",
+    "A4. .github/actions/artex-scan/action.yml: Create the GitHub Actions composite action definition. Fields: name: 'Artex Security Scan', description: 'Run an Artex pentest task and report findings as SARIF', inputs: artex_url (required, Artex server URL), api_key (required, JWT token), task_id (required), wait_seconds (optional, default 300), runs: using composite, steps: [curl to POST /api/tasks/{task_id}/control {action:start}, sleep $wait_seconds, curl GET /api/tasks/{task_id}/sarif -H 'Authorization: Bearer $api_key' -o results.sarif, upload-artifact results.sarif].",
+    "A5. .github/actions/artex-scan/README.md: Document the GitHub Actions usage. Example workflow YAML snippet showing how to integrate artex-scan into a CI pipeline. Keep the README concise (under 100 lines).",
+    "A6. docs/github-actions-guide.md (new file): Full setup guide — how to get the Artex URL and API key, how to create a task, example workflow, how to view results in GitHub Security tab. Korean language.",
+    "SECTION B: Benchmark Mode",
+    "B1. benchmarks/targets/dvwa.yaml: Define DVWA benchmark target. YAML structure: {name: 'DVWA', description: '...', url: 'http://localhost:4280', expected_findings: [{vulnclass: 'SQL Injection', severity: 'high'}, {vulnclass: 'XSS', severity: 'medium'}, {vulnclass: 'File Upload', severity: 'high'}, {vulnclass: 'CSRF', severity: 'medium'}, {vulnclass: 'Command Injection', severity: 'high'}], setup_docker: 'docker run -d -p 4280:80 vulnerables/web-dvwa', auth: {url: '/login.php', username: 'admin', password: 'password'}}",
+    "B2. benchmarks/targets/juice-shop.yaml: Define OWASP Juice Shop target. {name: 'OWASP Juice Shop', url: 'http://localhost:3000', expected_findings: [{vulnclass: 'SQL Injection'}, {vulnclass: 'XSS'}, {vulnclass: 'Broken Authentication'}, {vulnclass: 'Sensitive Data Exposure'}, {vulnclass: 'Missing Function Level Access Control'}], setup_docker: 'docker run -d -p 3000:3000 bkimminich/juice-shop'}",
+    "B3. benchmarks/run.go (new Go file, package main in benchmarks/ or a standalone script): Implement a benchmark runner CLI tool. `package main`. Flags: --server (Artex URL), --token (JWT), --target (yaml file path), --timeout (seconds, default 600). Logic: (1) read target YAML, (2) POST /api/tasks to create a task with the target URL as description/goal, (3) POST /api/tasks/{id}/control {action:start}, (4) poll GET /api/tasks/{id} every 10s until status=done/failed or timeout, (5) GET /api/tasks/{id}/sarif or GET /api/exploration/findings?taskID={id}, (6) calculate recall: count expected_findings whose vulnclass appears in actual findings / total expected, (7) print summary: recall%, found findings list, missed findings list. Use only stdlib (net/http, encoding/json, os, flag, time).",
+    "B4. db/schema.sql: No schema change needed. Benchmarks run via CLI against a live server.",
+    "B5. server/server.go: Register `mux.HandleFunc(\"GET /api/benchmarks/targets\", s.listBenchmarkTargets)`. Implement listBenchmarkTargets in server/benchmarks.go (new file): read all *.yaml files from the benchmarks/targets/ directory, parse them, return as JSON array. This lets the UI display available benchmark targets.",
+    "B6. server/benchmarks.go: Implement the handler. Use os.ReadDir to list benchmarks/targets/, read each .yaml file, parse with a simple YAML unmarshaller (use encoding/json after converting to JSON, or embed a minimal YAML parser — since go.mod doesn't have a YAML library, use a struct with json tags and document that the YAML files must use JSON-compatible syntax, OR add gopkg.in/yaml.v3 to go.mod via `go get gopkg.in/yaml.v3@v3.0.1`).",
+    "B7. go.mod: Add `gopkg.in/yaml.v3 v3.0.1` for YAML parsing in benchmarks. Run `go mod tidy` after."
+  ],
+  "acceptance_criteria": [
+    "go build ./... succeeds.",
+    "go test ./report/... includes TestSARIF that validates SARIF output structure.",
+    "GET /api/tasks/{id}/sarif returns application/sarif+json with valid SARIF 2.1.0 structure.",
+    ".github/actions/artex-scan/action.yml exists and is valid YAML.",
+    "benchmarks/targets/dvwa.yaml and benchmarks/targets/juice-shop.yaml exist.",
+    "benchmarks/run.go compiles: `go build ./benchmarks/...`.",
+    "GET /api/benchmarks/targets returns a JSON array.",
+    "SARIF output has $schema, version, runs[0].tool.driver.name='artex' fields.",
+    "go build ./... still passes."
+  ],
+  "verification": [
+    "go build ./... — no errors",
+    "go build ./benchmarks/... — no errors (if benchmarks/run.go is package main in a subdir)",
+    "go test ./report/... — TestSARIF passes",
+    "python3 -c \"import json; d=json.load(open('test.sarif')); assert d['version']=='2.1.0'\" on generated SARIF — passes"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

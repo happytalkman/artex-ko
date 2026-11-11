@@ -45,7 +45,7 @@ func TestChatMentionPagination(t *testing.T) {
 	pg := s.m.pg
 	query := fmt.Sprintf("mention-pages-%d", fid)
 	for i := 0; i < 43; i++ {
-		id, err := pg.AddFinding(0, 0, "xss", query, "low", query, "proof", "test", nil)
+		id, err := pg.AddFinding(0, 0, "xss", query, "low", query, "proof", "test", nil, "", 0)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -139,7 +139,7 @@ func TestChatMentionWorkerReceivesServerDetails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fid, err := m.pg.AddFinding(0, 0, "xss", "Worker mention", "low", "summary", "worker-hidden-proof", "test", nil)
+	fid, err := m.pg.AddFinding(0, 0, "xss", "Worker mention", "low", "summary", "worker-hidden-proof", "test", nil, "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}

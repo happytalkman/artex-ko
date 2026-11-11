@@ -1,0 +1,7 @@
+{
+  "task_id": "task-17-features",
+  "task_description": "Implement 17 new features in the artex-ko Go+PostgreSQL security testing platform: CVSS scoring, LLM observability, continuous monitoring, skill files (Linux LPE, whitebox analysis, GraphQL, WebSocket, cloud audit), vector memory, Sigma rule generation, CTF mode, CI/CD integration, dedup logic, HTML/PDF reports, resource library, TOTP, benchmarks, and retest UI enhancements.",
+  "status": "pending",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003", "FEAT-004", "FEAT-005"],
+  "blocked_reason": null
+}

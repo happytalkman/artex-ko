@@ -126,7 +126,7 @@ func TestCoreTaskLifecyclePG(t *testing.T) {
 		t.Fatal(err)
 	}
 	nid, _ := strconv.ParseInt(id, 10, 64)
-	findingID, err := m.pg.AddFinding(nid, 0, "__core_task_delete__", "", db.SeverityHigh, "summary", "evidence", "tester", nil)
+	findingID, err := m.pg.AddFinding(nid, 0, "__core_task_delete__", "", db.SeverityHigh, "summary", "evidence", "tester", nil, "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}

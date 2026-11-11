@@ -22,25 +22,29 @@ type Input struct {
 }
 
 type findingView struct {
-	VulnClass string
-	Name      string
-	Severity  string
-	Summary   string
-	PoC       string
+	VulnClass  string
+	Name       string
+	Severity   string
+	Summary    string
+	PoC        string
+	CvssVector string
+	CvssScore  float64
 }
 
 func parseFinding(n *db.Node) findingView {
 	var p struct {
-		VulnClass string `json:"vulnclass"`
-		Name      string `json:"name"`
-		Severity  string `json:"severity"`
-		Summary   string `json:"summary"`
-		Evidence  struct {
+		VulnClass  string  `json:"vulnclass"`
+		Name       string  `json:"name"`
+		Severity   string  `json:"severity"`
+		Summary    string  `json:"summary"`
+		CvssVector string  `json:"cvss_vector"`
+		CvssScore  float64 `json:"cvss_score"`
+		Evidence   struct {
 			PoC string `json:"poc"`
 		} `json:"evidence"`
 	}
 	_ = json.Unmarshal(n.Payload, &p)
-	return findingView{p.VulnClass, p.Name, p.Severity, p.Summary, p.Evidence.PoC}
+	return findingView{p.VulnClass, p.Name, p.Severity, p.Summary, p.Evidence.PoC, p.CvssVector, p.CvssScore}
 }
 
 var sevRank = map[string]int{"critical": 0, "high": 1, "medium": 2, "low": 3, "": 4}
@@ -80,7 +84,12 @@ func Markdown(in Input) string {
 		}
 		sort.SliceStable(fs, func(i, j int) bool { return sevRank[fs[i].Severity] < sevRank[fs[j].Severity] })
 		for i, f := range fs {
-			fmt.Fprintf(&b, "### %d. [%s] %s\n\n", i+1, strings.ToUpper(nz(f.Severity, "info")), nz(f.Name, nz(f.VulnClass, "미분류")))
+			sevLabel := strings.ToUpper(nz(f.Severity, "info"))
+			if f.CvssScore > 0 {
+				fmt.Fprintf(&b, "### %d. [%s / CVSS: %.1f] %s\n\n", i+1, sevLabel, f.CvssScore, nz(f.Name, nz(f.VulnClass, "미분류")))
+			} else {
+				fmt.Fprintf(&b, "### %d. [%s] %s\n\n", i+1, sevLabel, nz(f.Name, nz(f.VulnClass, "미분류")))
+			}
 			fmt.Fprintf(&b, "%s\n\n", nz(f.Summary, ""))
 			if f.PoC != "" {
 				fmt.Fprintf(&b, "**PoC / 증거:**\n\n```\n%s\n```\n\n", f.PoC)

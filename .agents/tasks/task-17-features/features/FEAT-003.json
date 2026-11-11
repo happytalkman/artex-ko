@@ -1,0 +1,39 @@
+{
+  "id": "FEAT-003",
+  "type": "feat",
+  "description": "P1/P2 skill files — Linux LPE, Whitebox Analysis, GraphQL audit, WebSocket fuzz, Cloud audit. All five are purely SKILL.md + script files under skills/ — no Go code changes. They are independent of each other and of other FEATs. Grouped as one FEAT because the pattern is identical for all five.",
+  "status": "pending",
+  "steps": [
+    "1. Create skills/linux-lpe/SKILL.md with frontmatter `name: linux-lpe`, `description: 호스트 쉘 획득 후 Linux 권한 상승 경로를 체계적으로 탐색한다`. Include sections: Overview, Checklist (SUID binaries, sudo misconfigs, cron jobs, PATH hijacking, writable /etc/passwd, kernel exploits via uname -r CVE lookup, capabilities, NFS, Docker socket), Scripts usage guide referencing scripts/linpeas_parse.py, Completion criteria (root shell or proof of privilege escalation).",
+    "2. Create skills/linux-lpe/scripts/linpeas_parse.py — a Python script that accepts LinPEAS output on stdin or as a file argument and prints a prioritized list of exploitation vectors. Parse sections: SUID files, sudo -l output, crontab entries, writable files in PATH, kernel version. Output JSON array of {category, detail, priority: high/medium/low}.",
+    "3. Create skills/whitebox-analysis/SKILL.md with frontmatter `name: whitebox-analysis`, `description: 소스코드가 제공될 때 위험 함수 추적 및 취약점 경로를 분석한다`. Include sections: Overview, Methodology (source triage → dangerous sink identification → call chain tracing → evidence collection), Dangerous sinks by language (Python: eval/exec/os.system/subprocess/pickle.loads; JS: eval/innerHTML/document.write/dangerouslySetInnerHTML; PHP: eval/system/exec/include $var; Go: exec.Command; SQL: raw string query concatenation), Scripts usage guide referencing scripts/ast_scan.py.",
+    "4. Create skills/whitebox-analysis/scripts/ast_scan.py — a Python script that accepts a directory path as argument and scans Python files using the `ast` module for dangerous function calls (eval, exec, compile, __import__, subprocess.*, os.system, pickle.loads). For each hit, prints file:line:function_name:context. Also scans for SQL string concatenation patterns via regex. Output: JSON array of {file, line, sink, context, language}.",
+    "5. Create skills/graphql-audit/SKILL.md with frontmatter `name: graphql-audit`, `description: GraphQL 엔드포인트의 인트로스펙션, 뮤테이션 퍼징, 권한 우회를 테스트한다`. Include sections: Phase 1 Introspection (POST __schema query, check if disabled), Phase 2 Query depth/complexity attacks, Phase 3 Mutation fuzzing (enumerate mutations via introspection, test missing auth on destructive mutations), Phase 4 Authorization bypass (IDOR via ID manipulation in queries), Phase 5 Batching attacks, Tools (use playwright-cli or direct curl). Reference the existing api-recon skill for endpoint discovery.",
+    "6. Create skills/websocket-fuzz/SKILL.md with frontmatter `name: websocket-fuzz`, `description: WebSocket 연결의 메시지 타입 열거, 인증 토큰 주입, 퍼징을 수행한다`. Include sections: Phase 1 Handshake analysis (Origin header check, Sec-WebSocket-Key validation), Phase 2 Message enumeration (send various JSON message types seen from static analysis), Phase 3 Auth token injection (send ws messages without auth token, with invalid token, with another user's token), Phase 4 Input fuzzing (SQL injection, XSS payloads in message fields). Tools: wscat via playwright-cli or python websockets library.",
+    "7. Create skills/cloud-audit/SKILL.md with frontmatter `name: cloud-audit`, `description: AWS/GCP/Azure 클라우드 환경의 오구성 및 과도한 권한을 감사한다`. Include sections: AWS (IMDSv1 SSRF via http://169.254.169.254/latest/meta-data/, S3 bucket enumeration via s3:ListBucket/GetObject without auth, IAM role enumeration, public RDS/EC2 security groups), GCP (metadata server http://metadata.google.internal/computeMetadata/v1/, service account key exposure, public GCS buckets), Azure (IMDS http://169.254.169.254/metadata/instance, storage account SAS token exposure, managed identity token abuse). Scripts usage for scripts/aws_check.sh.",
+    "8. Create skills/cloud-audit/scripts/aws_check.sh — a bash script that checks: (1) IMDSv1 accessibility via curl, (2) current IAM identity via `aws sts get-caller-identity`, (3) S3 bucket list via `aws s3 ls`, (4) security group rules for 0.0.0.0/0 inbound via `aws ec2 describe-security-groups`. Outputs findings as text. Requires AWS CLI in PATH.",
+    "9. Create skills/playwright-cli/references/totp-login.md — a reference document for TOTP automation. Include: how to generate a TOTP code from a base32 secret using scripts/totp.py, how to use playwright-cli to fill the OTP field, example code flow.",
+    "10. Create skills/playwright-cli/scripts/totp.py — a Python script that accepts a base32 TOTP secret as argument (or from stdin) and prints the current 6-digit TOTP code. Implement TOTP using Python stdlib only (hmac, hashlib, struct, time, base64) — no external dependencies. Algorithm: RFC 6238 TOTP = HOTP(key, T) where T = floor(current_unix_time / 30)."
+  ],
+  "acceptance_criteria": [
+    "skills/linux-lpe/SKILL.md exists with valid frontmatter (name: linux-lpe).",
+    "skills/linux-lpe/scripts/linpeas_parse.py exists and is syntactically valid Python (`python3 -m py_compile`).",
+    "skills/whitebox-analysis/SKILL.md exists with valid frontmatter.",
+    "skills/whitebox-analysis/scripts/ast_scan.py exists and is syntactically valid Python.",
+    "skills/graphql-audit/SKILL.md exists with valid frontmatter.",
+    "skills/websocket-fuzz/SKILL.md exists with valid frontmatter.",
+    "skills/cloud-audit/SKILL.md exists with valid frontmatter.",
+    "skills/cloud-audit/scripts/aws_check.sh exists.",
+    "skills/playwright-cli/references/totp-login.md exists.",
+    "skills/playwright-cli/scripts/totp.py exists, generates a 6-digit code when given a valid base32 secret: `python3 skills/playwright-cli/scripts/totp.py JBSWY3DPEHPK3PXP` outputs a 6-digit number.",
+    "go build ./... still passes (no Go changes in this FEAT)."
+  ],
+  "verification": [
+    "python3 -m py_compile skills/linux-lpe/scripts/linpeas_parse.py — no syntax errors",
+    "python3 -m py_compile skills/whitebox-analysis/scripts/ast_scan.py — no syntax errors",
+    "python3 skills/playwright-cli/scripts/totp.py JBSWY3DPEHPK3PXP — outputs a 6-digit number",
+    "go build ./... — no errors"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

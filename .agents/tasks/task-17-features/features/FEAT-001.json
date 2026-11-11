@@ -1,0 +1,35 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "P1 features — CVSS v3.1 auto-scoring + PoC gate, and LLM observability /api/llm/stats endpoint. These two are grouped because CVSS touches DB schema + finding recorder + prompt, while LLM stats only adds a read endpoint on existing llm_usage data (zero schema change). Both are foundational P1 items with no dependency on later FEATs.",
+  "status": "pending",
+  "steps": [
+    "1. DB schema: Add `cvss_vector TEXT NOT NULL DEFAULT ''` and `cvss_score NUMERIC(4,1) NOT NULL DEFAULT 0` to the findings table in db/schema.sql using `ALTER TABLE findings ADD COLUMN IF NOT EXISTS` pattern. Also add `llm_usage` worker-level latency aggregation index: `CREATE INDEX IF NOT EXISTS idx_llm_usage_worker ON llm_usage(worker, ts DESC);`",
+    "2. db/findings.go: Add cvss_vector and cvss_score fields to DBFinding struct. Update findingSelectCols constant to include `f.cvss_vector, COALESCE(f.cvss_score, 0)`. Update scanFindings to scan these two new fields. Update AddFinding signature to accept cvssVector string, cvssScore float64 and pass them to the INSERT.",
+    "3. db/constants.go or new file db/cvss.go: Add a pure-Go CVSS v3.1 base score calculator function `CalcCVSS31Score(vector string) (float64, error)` that parses an AV:_/AC:_/PR:_/UI:_/S:_/C:_/I:_/A:_ vector string and returns the numeric base score (0.0–10.0). Use the standard CVSS 3.1 formula from the spec (no external dependency needed).",
+    "4. agent/finding_recorder.go: Extend the FindingRecorder interface — add CvssVector and CvssScore fields to db.RecordFindingInput (defined in db package). The concrete implementation in db (called by server/finding_workflow.go) will call CalcCVSS31Score when CvssVector is non-empty and CvssScore is zero. If the vector is non-empty but no traffic_refs and evidence is empty → downgrade severity to 'info' (PoC gate). Document this gate logic with a comment.",
+    "5. db/RecordFindingInput: In db package (db/tasks.go or db/findings.go), add CvssVector string and CvssScore float64 to RecordFindingInput struct (find where it is defined — likely db/findings.go or similar). Update the RecordFinding function to persist these fields.",
+    "6. agent/promptcatalog.go or agent/prompt.go: Add a Korean/Chinese CVSS scoring guide constant `findingCVSSGuidance` that instructs the worker to: (a) determine the CVSS v3.1 base vector (AV/AC/PR/UI/S/C/I/A) for each finding, (b) include it in the cvss_vector field of report_finding, (c) provide traffic_refs or evidence (PoC gate reminder). Append this guidance to the worker's report_finding tool description via the existing findingWorkflowTools() injection point in agent/finding_workflow.go.",
+    "7. agent/tools.go: In the report_finding tool's input schema (defined in agent/toolcatalog.go or agent/tools.go — find via grep for 'report_finding'), add optional fields: `cvss_vector` (string, description: 'CVSS v3.1 base vector e.g. AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H') and `cvss_score` (number, description: 'CVSS base score 0.0-10.0; auto-calculated from vector if omitted').",
+    "8. server/finding_workflow.go: In the report_finding tool handler, extract cvss_vector and cvss_score from tool input JSON, call db.CalcCVSS31Score if score is 0 and vector is non-empty, apply PoC gate (downgrade to 'info' if traffic_refs==[] and evidence==\"\"), then pass to RecordFinding.",
+    "9. report/report.go: In parseFinding, extract and display cvss_vector and cvss_score in findingView. Update the Markdown() renderer to show CVSS score in the finding header: `### N. [SEVERITY / CVSS: X.X] Name`.",
+    "10. LLM stats endpoint: In server/server.go, register `mux.HandleFunc(\"GET /api/llm/stats\", s.getLLMStats)`. Implement getLLMStats in a new file server/llm_stats.go. The handler calls s.m.pg.UsageByProfile() and s.m.pg.UsageDaily(30) (already in db/llm_usage.go), plus a new db.WorkerLatencyStats() that queries llm_usage grouped by worker returning avg/p95 latency and error rate. Return JSON: {profiles: [...], daily: [...], workers: [...]}.",
+    "11. db/llm_usage.go: Add WorkerLatencyStats() that queries `SELECT COALESCE(worker,'') AS worker, COUNT(*) AS calls, COALESCE(AVG(latency_ms),0) AS avg_latency_ms, COALESCE(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency_ms),0) AS p95_latency_ms, ROUND(100.0*SUM(CASE WHEN status='error' THEN 1 ELSE 0 END)/NULLIF(COUNT(*),0),2) AS error_pct FROM llm_usage WHERE ts >= now() - interval '30 days' GROUP BY worker ORDER BY calls DESC`."
+  ],
+  "acceptance_criteria": [
+    "Running `go build ./...` succeeds with no errors after all changes.",
+    "Running `go test ./db/... ./agent/... ./server/... ./report/...` passes all non-DB unit tests.",
+    "GET /api/llm/stats returns JSON with `profiles`, `daily`, and `workers` keys.",
+    "The findings table in DB has cvss_vector and cvss_score columns (visible via schema.sql ALTER statements).",
+    "The report_finding tool schema includes cvss_vector and cvss_score optional fields.",
+    "CalcCVSS31Score(\"AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H\") returns 9.8 (Critical).",
+    "A finding with no traffic_refs and empty evidence has its severity downgraded to 'info' by the PoC gate."
+  ],
+  "verification": [
+    "go build ./... (from c:\\apex\\artex-ko) — no errors",
+    "go test ./db/... ./agent/... ./report/... — all pass",
+    "go test -run TestCalcCVSS31Score ./db/... (add a unit test for the calculator)"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

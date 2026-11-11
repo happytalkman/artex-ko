@@ -79,6 +79,10 @@ func findingWorkflowTools(agentKey string, tools []actool.CoreTool) ([]actool.Co
 	if guidance != "" || has["get_finding_traffic"] || has["update_finding_report"] {
 		guidance += findingIDGuidance
 	}
+	// Append CVSS scoring + PoC gate guidance whenever the worker can report findings.
+	if has["report_finding"] {
+		guidance += findingCVSSGuidance
+	}
 	return out, guidance
 }
 

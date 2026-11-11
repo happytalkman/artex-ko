@@ -1,0 +1,41 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "P1 features — Continuous monitoring mode (task scheduling) + CTF autonomous mode + retest UI enhancements. These three are grouped because they all touch the tasks table schema and/or the existing scheduler/engine infrastructure, and none depends on FEAT-001 outputs. They are independent of each other within this FEAT and can be implemented in sequence.",
+  "status": "pending",
+  "steps": [
+    "SECTION A: Continuous Monitoring Mode",
+    "A1. db/schema.sql: Add `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS schedule TEXT NOT NULL DEFAULT '';` and `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS schedule_last_run_at TIMESTAMPTZ;` and `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS task_type TEXT NOT NULL DEFAULT 'pentest';`. The schedule column holds a cron expression (e.g. '0 2 * * *') or empty string for no schedule.",
+    "A2. db/tasks.go: Add schedule, schedule_last_run_at, task_type fields to the Task struct (find the struct definition — likely in db/tasks.go). Update the SELECT query in GetTask/ListTasks to include these columns. Add a DB query function `ListScheduledTasks() ([]*Task, error)` that returns tasks where `schedule != '' AND deleted_at IS NULL AND status NOT IN ('running')` and `schedule_last_run_at IS NULL OR schedule_last_run_at < now() - <derived interval>`.",
+    "A3. server/scheduler.go: In the Scheduler.step() method, add a new call `sc.fireScheduledTasks()`. Implement fireScheduledTasks(): call sc.pg.ListScheduledTasks(), for each due task (parse cron expression to determine if due using a simple next-fire-time calculation — implement a minimal cron parser in a helper function parseCronNextFire(expr string, since time.Time) time.Time that handles the standard 5-field cron format), call sc.pg.SetTaskScheduleLastRun(taskID) and then sc.s.engine.StartTask(taskID) (or the equivalent restart mechanism). The 'new findings only' diff: after each scheduled run completes, compare new finding IDs against the watermark stored in task metadata and fire notify only for net-new findings.",
+    "A4. db/tasks.go: Add `SetTaskScheduleLastRun(taskID int64) error` that updates `schedule_last_run_at = now()`. Add `GetScheduledTaskLastFindingWatermark(taskID int64) (int64, error)` and `SetScheduledTaskLastFindingWatermark(taskID int64, watermark int64) error` using the existing settings-like pattern.",
+    "A5. server/task_metadata.go (or server/task_control.go): In the updateTaskMetadata handler, accept and persist the new `schedule` and `task_type` fields from the PATCH request body. Add Korean error constant for invalid cron expression.",
+    "A6. server/server.go: Register no new routes — schedule is managed via the existing PATCH /api/tasks/{id}. No change needed beyond ensuring updateTaskMetadata persists the new fields.",
+    "SECTION B: CTF Autonomous Mode",
+    "B1. agent/goals.go: Add a flag detection function `detectCTFFlag(text string) (string, bool)` that checks for patterns: `flag{...}`, `HTB{...}`, `CTF{...}`, `picoCTF{...}`, `FLAG{...}` using regexp. This function returns the matched flag and true if found.",
+    "B2. agent/worker.go: After each tool result is processed, if task_type == 'ctf', call detectCTFFlag on the tool output text. If a flag is found: call report_finding with vulnclass='CTF Flag', severity='critical', evidence including the flag value, then call prove_goal/goal_met with the flag as evidence. Add a Korean-language constant for the CTF completion message.",
+    "B3. server/finding_workflow.go or server/engine.go: When a task with task_type='ctf' has a goal marked as 'met' (via goal_met tool), automatically set the task status to 'done'. This likely hooks into the existing goal_met handler — find it via grep for 'goal_met' in server/ and add a check for task_type.",
+    "B4. agent/promptcatalog.go: Add a CTF-specific system prompt addendum constant `ctfModeGuidance` (Korean/Chinese) instructing the agent: search for flag patterns (flag{...}, HTB{...}), report immediately when found, treat flag capture as the primary goal. This is appended to the worker prompt when task_type=='ctf'.",
+    "SECTION C: Retest UI Enhancements",
+    "C1. server/finding_retests.go: The existing endpoints are complete (listFindingRetests, startFindingRetest, listActiveFindingRetests). Verify that RecordFindingRetestResult with verdict='fixed' automatically updates finding status to 'fixed'. Check db/finding_retests.go RecordFindingRetestResult function — if it doesn't update findings.status, add `UPDATE findings SET status='fixed' WHERE id = (SELECT finding_id FROM finding_retests WHERE conversation_id=$1)` within the same transaction when verdict='fixed'.",
+    "C2. db/finding_retests.go: In RecordFindingRetestResult (find exact function name via grep), ensure the transaction also runs `UPDATE findings SET status = CASE WHEN $verdict = 'fixed' THEN 'fixed' ELSE status END WHERE id = (SELECT finding_id FROM finding_retests WHERE id = $retest_id)`. If this is already done, document it in findings and move on.",
+    "C3. server/finding_retests.go: Add a new endpoint handler `getRetestHistory` for GET /api/exploration/findings/{id}/retests/history that returns paginated retest history with verdict, summary, evidence, created_at. Register in server/server.go: `mux.HandleFunc(\"GET /api/exploration/findings/{id}/retests\", s.listFindingRetests)` (already exists — verify it returns full history, not just active)."
+  ],
+  "acceptance_criteria": [
+    "go build ./... succeeds.",
+    "go test ./... passes all non-DB unit tests.",
+    "tasks table has schedule, schedule_last_run_at, and task_type columns.",
+    "detectCTFFlag(\"flag{test_123}\") returns (\"flag{test_123}\", true).",
+    "detectCTFFlag(\"no flag here\") returns (\"\", false).",
+    "RecordFindingRetestResult with verdict='fixed' sets findings.status='fixed' in DB.",
+    "PATCH /api/tasks/{id} accepts and persists schedule and task_type fields.",
+    "ListScheduledTasks() returns tasks whose cron expression is due."
+  ],
+  "verification": [
+    "go build ./... — no errors",
+    "go test ./agent/... -run TestCTFFlag — new unit test for detectCTFFlag passes",
+    "go test ./db/... ./server/... — existing tests pass"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}
